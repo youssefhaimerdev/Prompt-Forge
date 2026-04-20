@@ -139,13 +139,30 @@ export const OUTPUT_TYPES: Record<OutputType, { label: string; icon: string }> =
   code:     { label: 'Code',      icon: '◌' },
 }
 
-// ─── PROMPT ENGINE ──────────────────────────────────────────
+// ─── VARIABILITY SYSTEM ──────────────────────────────────────
+const INSTRUCTION_BOOSTERS = [
+  'Make this highly practical — every insight must be actionable within 48 hours.',
+  'Make this emotionally engaging — connect to the reader\'s real frustrations and aspirations.',
+  'Make this feel authoritative — back every claim with either data, a named example, or first-principles reasoning.',
+  'Make this maximally specific — no vague language, no "it depends", give concrete recommendations.',
+  'Prioritize insight density — remove everything that doesn\'t teach something new or actionable.',
+  'Make every section contain something surprising enough to screenshot and share.',
+]
 
-interface BuildInput {
-  category: Category
-  tone: Tone
-  outputType: OutputType
-  fields: Record<string, string>
+const STRUCTURE_VARIATIONS = ['numbered-list', 'section-headers', 'narrative'] as const
+type StructureVariation = typeof STRUCTURE_VARIATIONS[number]
+
+function pickRandom<T>(arr: readonly T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)]
+}
+
+function getBooster(): string { return pickRandom(INSTRUCTION_BOOSTERS) }
+function getStructure(): StructureVariation { return pickRandom(STRUCTURE_VARIATIONS) }
+
+function structureInstruction(v: StructureVariation): string {
+  if (v === 'numbered-list') return 'Format as a numbered list with bold section titles. Each item must be a complete, standalone insight — not a header with a one-liner.'
+  if (v === 'section-headers') return 'Use clear ALL-CAPS section headers followed by dense prose paragraphs. No bullet points — write full sentences within each section.'
+  return 'Write in connected prose — build the argument as a flowing narrative where each paragraph leads naturally into the next.'
 }
 
 function toneInstruction(tone: Tone): string {
@@ -160,22 +177,58 @@ function toneInstruction(tone: Tone): string {
   return map[tone]
 }
 
-function outputInstruction(type: OutputType): string {
-  const map: Record<OutputType, string> = {
-    strategy: 'Structure the output as a clear strategic framework: situation → insight → actions → metrics. Number each section.',
-    caption:  'Produce 3 distinct caption variants. Label each: [Variant A] [Variant B] [Variant C]. Vary hook style, length, and energy level.',
-    ideas:    'Generate exactly 7 ideas. For each: (1) name it boldly, (2) explain the core mechanism in one sentence, (3) state the biggest risk.',
-    script:   'Format as a full script with [HOOK], [BODY], [CTA] sections clearly labeled. Include stage directions in brackets.',
-    analysis: 'Structure as: Executive Summary → Key Findings (numbered) → Risks → Recommended Actions → One Contrarian Take.',
-    code:     'Output clean, production-ready code. Include: brief architecture explanation, the code block, inline comments for non-obvious parts, and one paragraph on edge cases to handle.',
+function fewShotBlock(category: Category): string {
+  const examples: Record<Category, string> = {
+    chatgpt: `--- EXAMPLE OF EXPECTED OUTPUT QUALITY ---
+Topic: "How to reduce SaaS churn"
+Expert answer style: "Churn in B2B SaaS traces back to one of three root causes 80% of the time: (1) the customer never hit their 'aha moment', (2) the champion who bought it left the company, or (3) the product solved their Q1 problem but wasn't flexible enough for Q2. The fix for each is completely different — treat them as separate problems, not one churn problem."
+This specificity and diagnostic depth is the target standard. Generic advice about "improving customer experience" is not acceptable.`,
+
+    business: `--- EXAMPLE OF EXPECTED OUTPUT QUALITY ---
+For a growth-stage SaaS with 15% churn:
+"Root cause: Not a product problem. Exit interviews reveal customers who churned in months 3–6 never completed onboarding step 4 (integrations). This is an activation failure disguised as a retention problem. Recommended action: assign a CS rep to every account that hasn't completed integrations within 14 days of signup. Pilot cost: ~2hrs/week. Expected impact: 4–6% churn reduction within 60 days."
+Every recommendation must be this specific: stage-aware, cost-aware, time-bound.`,
+
+    social: `--- EXAMPLE OF EXPECTED OUTPUT QUALITY ---
+Hook (Curiosity gap): "The reason your Instagram reach dropped 40% isn't what you think."
+Body: "Most creators blame the algorithm. The real culprit? Save rate. Instagram's ranking weights saves over likes because saved content solves a problem people return to. Shift from 'entertaining' to 'reference-worthy' and watch reach recover in 3 weeks."
+CTA: "Save this post for the next time someone tells you the algorithm is broken."
+Every variant should have: hook mechanism labeled, problem reframed, actionable insight, natural CTA.`,
+
+    midjourney: `--- EXAMPLE: WEAK VS EXPERT PROMPT ---
+Weak: "A woman in a coffee shop"
+Expert: "Parisian woman in her 40s reading at a marble café table, Leica M11 35mm street photography, overcast diffused light, warm shadows, film grain, genuine candid moment, shallow depth of field, muted earth tones —cream, terracotta, charcoal— --ar 4:5 --v 6.1 --style raw --q 2"
+The expert version specifies: subject detail, camera/lens, lighting, mood, color palette, aspect ratio, and render parameters. Every word earns its place.`,
+
+    copywriting: `--- EXAMPLE: WEAK VS EXPERT COPY ---
+Weak headline: "Get more done with our tool."
+Expert headline: "We gave 200 freelancers back 11 hours a week. Here's exactly how."
+Weak CTA: "Learn more about our features."
+Expert CTA: "Start your first automated week free — no card required."
+Expert copy is specific (200 freelancers, 11 hours), credible, and action-first. Every line earns the reader's attention or it gets cut.`,
+
+    coding: `--- EXAMPLE OF EXPECTED PRE-CODE ANALYSIS ---
+Before writing: "The core challenge isn't the algorithm — it's cache invalidation under concurrent writes. I'm using write-through cache with optimistic locking rather than write-behind because our read:write ratio is ~20:1 and consistency outweighs write throughput here. Alternative rejected: Redis pub/sub — adds operational complexity without meaningful benefit at this scale."
+The code that follows should match this standard of system thinking and trade-off awareness.`,
   }
-  return map[type]
+  return examples[category]
+}
+
+// ─── BUILD PROMPT ────────────────────────────────────────────
+interface BuildInput {
+  category: Category
+  tone: Tone
+  outputType: OutputType
+  fields: Record<string, string>
 }
 
 export function buildPrompt(input: BuildInput): string {
   const { category, tone, outputType, fields } = input
   const toneGuide = toneInstruction(tone)
-  const outputGuide = outputInstruction(outputType)
+  const booster = getBooster()
+  const structure = getStructure()
+  const structureGuide = structureInstruction(structure)
+  const fewShot = fewShotBlock(category)
 
   const generators: Record<Category, () => string> = {
 
@@ -184,63 +237,99 @@ export function buildPrompt(input: BuildInput): string {
       const topic  = fields.topic  || 'the topic at hand'
       const who    = fields.audience || 'a smart professional seeking real insight'
       const depth  = fields.depth  || 'Deep expert analysis'
-      const format = fields.format || 'Framework with examples'
-      return `Act as a ${role} with 15+ years of hands-on experience — not academic theory, real-world pattern recognition.
+      const fmt    = fields.format || 'Framework with examples'
+      return `# ROLE
+Act as a ${role} with 15+ years of hands-on experience — not academic theory, real-world pattern recognition.
 
-TASK:
-Provide a ${depth.toLowerCase()} on: "${topic}"
+# CONTEXT
+Audience: ${who}
+Depth required: ${depth}
+Output format requested: ${fmt}
 
-AUDIENCE:
-This is for ${who}. Calibrate your language accordingly — no condescension, no oversimplification.
+# OBJECTIVE
+Provide a ${depth.toLowerCase()} on the following topic:
+"${topic}"
 
-DEPTH MANDATE:
-Go beyond surface-level explanations. I want the insight that separates someone who has done this from someone who has only read about it. Include:
-— The counterintuitive truth most people miss about this topic
-— The most common mistake and why smart people still make it
-— One mental model or framework that unlocks clarity
-— Specific, concrete examples (name real companies, real numbers, real situations where possible)
+Go beyond surface-level explanations. I want the insight that separates someone who has done this from someone who has only read about it.
 
-OUTPUT FORMAT:
-Structure your response as: ${format}
+# CONSTRAINTS
+— Do not give generic advice. Give the specific insight tied to this exact topic and audience.
+— If your response could have been written by someone who has never worked in this field, rewrite it.
+— Every claim must be backed by first-principles reasoning, a named example, or real data.
+— Calibrate language to: ${who}
 
-TONE DIRECTIVE:
+# REQUIRED CONTENT
+Include all of the following:
+1. The counterintuitive truth most people miss about this topic
+2. The most common mistake and why smart people still make it
+3. One mental model or framework that unlocks clarity
+4. Specific, concrete examples (real companies, real numbers, real situations)
+5. One contrarian take that challenges the consensus view
+
+# OUTPUT FORMAT
+${structureGuide}
+
+# TONE
 ${toneGuide}
 
-QUALITY BAR:
-If your response could have been written by someone who has never actually worked in this field, rewrite it. The goal is insight density, not word count.`
+# QUALITY STANDARD
+${booster}
+
+${fewShot}`
     },
 
     business: () => {
-      const industry  = fields.industry  || 'the relevant industry'
-      const challenge = fields.challenge || 'the core business challenge'
-      const stage     = fields.stage     || 'Growth stage'
-      const goal      = fields.goal      || 'Increase revenue'
+      const industry   = fields.industry  || 'the relevant industry'
+      const challenge  = fields.challenge || 'the core business challenge'
+      const stage      = fields.stage     || 'Growth stage'
+      const goal       = fields.goal      || 'Increase revenue'
       const constraint = fields.constraint || 'Standard resource constraints'
-      return `Act as a McKinsey-tier business strategist who has also built and sold two companies. You combine analytical rigor with builder pragmatism.
+      return `# ROLE
+Act as a McKinsey-tier business strategist who has also built and sold two companies. You combine analytical rigor with builder pragmatism — no ivory-tower thinking.
 
-COMPANY CONTEXT:
+# CONTEXT
 — Industry: ${industry}
-— Stage: ${stage}
+— Company stage: ${stage}
 — Primary goal: ${goal}
-— Constraint: ${constraint}
+— Key constraint: ${constraint}
 
-THE CHALLENGE:
+# OBJECTIVE
+Solve this business challenge at the highest possible level:
 "${challenge}"
 
-YOUR MANDATE:
-Solve this challenge at the highest possible level. Do not give generic business advice. Give the specific, actionable insight that this exact company at this exact stage needs.
+# CONSTRAINTS
+— No generic business advice. Give specific, actionable insight for this exact company at this exact stage.
+— Acknowledge real constraints (${constraint}) — not ideal-world solutions.
+— Every strategic option must include: effort estimate, impact estimate, biggest assumption to validate.
+— Prioritize speed of impact given stage: ${stage}
 
-FRAMEWORK REQUIREMENTS:
-1. ROOT CAUSE DIAGNOSIS — What is actually causing this problem (it is rarely what it appears to be)?
-2. STRATEGIC OPTIONS — Present exactly 3 approaches, ordered by risk/reward. For each: estimated effort, estimated impact, biggest assumption to validate.
-3. RECOMMENDED PATH — Pick one. Justify the choice with specific reasoning tied to their stage and constraints.
-4. 30-DAY QUICK WIN — One action they can complete this month that creates momentum toward the solution.
-5. WARNING FLAGS — Two signals that would indicate the chosen path is failing and they should pivot.
+# REQUIRED FRAMEWORK (in order)
 
-TONE:
+1. ROOT CAUSE DIAGNOSIS
+What is actually causing this problem? (Rarely what it appears to be.) Show your diagnostic reasoning.
+
+2. STRATEGIC OPTIONS (exactly 3)
+Ordered by risk/reward. For each: effort level, expected impact, biggest assumption to validate.
+
+3. RECOMMENDED PATH
+Choose one. Justify with specific reasoning tied to their stage and constraints. No hedging.
+
+4. 30-DAY QUICK WIN
+One action completable this month that builds momentum. Specific, not general.
+
+5. WARNING FLAGS
+Two signals that indicate the chosen path is failing — and what to do when you see them.
+
+# OUTPUT FORMAT
+${structureGuide}
+
+# TONE
 ${toneGuide}
 
-${outputGuide}`
+# QUALITY STANDARD
+${booster}
+
+${fewShot}`
     },
 
     social: () => {
@@ -249,34 +338,42 @@ ${outputGuide}`
       const topic    = fields.topic    || 'the post topic'
       const style    = fields.style    || 'Storytelling post'
       const cta      = fields.cta      || 'drive engagement'
-      return `Act as a world-class social media strategist who has grown accounts from 0 to 1M+ followers across multiple niches. You understand the algorithm, human psychology, and scroll-stopping mechanics at a deep level.
+      return `# ROLE
+Act as a world-class social media strategist who has grown accounts from 0 to 1M+ followers across multiple niches. You understand the algorithm, human psychology, and scroll-stopping mechanics at a deep level.
 
-BRAND CONTEXT:
+# CONTEXT
 — Platform: ${platform}
 — Brand / Niche: ${niche}
 — Post Topic: "${topic}"
 — Content Style: ${style}
-— Desired Action: ${cta}
+— Desired Outcome: ${cta}
 
-YOUR TASK:
-Create high-performing ${platform} content about "${topic}" for ${niche}.
+# OBJECTIVE
+Create 3 distinct high-performing ${platform} content pieces about "${topic}" for ${niche}.
 
-CONTENT REQUIREMENTS:
-Each piece of content must contain:
-— A HOOK that stops the scroll in under 3 seconds (state the hook mechanism you are using: curiosity gap / bold claim / pattern interrupt / emotional spike)
-— BODY content that delivers on the hook promise and builds toward the CTA
-— A CALL TO ACTION that feels natural, not salesy, and achieves: ${cta}
+# CONSTRAINTS
+— Each piece must stop a scrolling thumb within 3 seconds or it fails.
+— Label the hook mechanism for each variant (curiosity gap / bold claim / pattern interrupt / emotional spike / open loop).
+— Never sound like a brand — sound like a knowledgeable person.
+— Optimize for mobile thumb-scroll readability (short paragraphs, strategic line breaks).
 
-PLATFORM-SPECIFIC RULES FOR ${platform.toUpperCase()}:
-— Optimize sentence length for thumb-scroll readability
-— Use white space and line breaks strategically
-— Include 7-10 hashtag recommendations (mix: 2 broad, 4 niche, 3 micro-niche)
-— Note optimal posting time window
+# REQUIRED FOR EACH VARIANT
+[HOOK] — Opening line (state the mechanism used)
+[BODY] — Delivers on hook promise, builds toward CTA
+[CTA] — Natural, achieves: ${cta}
+[HASHTAGS] — 7–10: 2 broad, 4 niche, 3 micro-niche
+[BEST TIME] — Optimal posting window for ${platform}
 
-TONE DIRECTIVE:
+# OUTPUT FORMAT
+${structureGuide}
+
+# TONE
 ${toneGuide}
 
-${outputGuide}`
+# QUALITY STANDARD
+${booster}
+
+${fewShot}`
     },
 
     midjourney: () => {
@@ -285,24 +382,32 @@ ${outputGuide}`
       const lighting = fields.lighting || 'Golden hour glow'
       const palette  = fields.palette  || 'rich, intentional tones'
       const details  = fields.details  || 'ultra-detailed, 8K'
-      return `${subject}, ${style.toLowerCase()}, ${lighting.toLowerCase()} lighting${palette ? `, color palette: ${palette}` : ''}, ${details || 'ultra-detailed'}, masterful composition, award-winning photography, hyper-realistic textures, atmospheric depth, professional color grading --ar 16:9 --v 6.1 --q 2 --s 750 --style raw
+      return `# PRIMARY PROMPT
+${subject}, ${style.toLowerCase()}, ${lighting.toLowerCase()} lighting${palette ? `, color palette: ${palette}` : ''}, ${details || 'ultra-detailed'}, masterful composition, award-winning photography, hyper-realistic textures, atmospheric depth, professional color grading --ar 16:9 --v 6.1 --q 2 --s 750 --style raw
 
 ---
 
-PROMPT VARIANTS (for iteration):
+# VARIANT A — Cinematic Wide
+${subject}, extreme wide shot, ${style.toLowerCase()}, ${lighting.toLowerCase()}, epic scale, ${palette ? palette + ', ' : ''}${details || 'ultra-detailed, 8K'}, IMAX quality, cinematic color grade --ar 21:9 --v 6.1 --q 2 --s 500 --style raw
 
-[VARIANT A — Wider, more cinematic]
-${subject}, extreme wide shot, ${style.toLowerCase()}, ${lighting.toLowerCase()}, epic scale, ${palette ? palette + ', ' : ''}${details || 'ultra-detailed, 8K'}, IMAX quality, cinematic color grade, shallow depth of field --ar 21:9 --v 6.1 --q 2 --s 500 --style raw
-
-[VARIANT B — Intimate, detailed]
+# VARIANT B — Intimate Close-Up
 Close-up perspective of ${subject}, ${style.toLowerCase()}, ${lighting.toLowerCase()}, macro detail, ${palette ? palette + ', ' : ''}fine texture work, museum-quality render, ${details || 'ultra-detailed'} --ar 4:5 --v 6.1 --q 2 --style raw
 
-[VARIANT C — Abstract interpretation]
+# VARIANT C — Abstract Reinterpretation
 ${subject}, abstract artistic reinterpretation, ${style.toLowerCase()}, surreal elements, ${palette ? palette + ', ' : ''}dreamlike atmosphere, conceptual art, trending on ArtStation --ar 1:1 --v 6.1 --s 1000
 
 ---
-NEGATIVE PROMPT (add to avoid common issues):
---no ugly, deformed, blurry, low quality, watermark, signature, text, oversaturated, plastic skin`
+
+# NEGATIVE PROMPT (add to all variants)
+--no ugly, deformed, blurry, low quality, watermark, signature, text, oversaturated, plastic skin, amateur
+
+# PROMPT ENGINEERING NOTES
+— --style raw removes Midjourney's aesthetic bias for more literal interpretation
+— --s 750 = moderate stylization; lower to 250 for photorealistic, raise to 1000 for artistic
+— For product shots: remove --style raw, add "commercial photography, studio setup"
+— For vertical format: swap --ar 16:9 to 9:16
+
+${fewShot}`
     },
 
     copywriting: () => {
@@ -311,45 +416,52 @@ NEGATIVE PROMPT (add to avoid common issues):
       const icp       = fields.icp       || 'the target customer'
       const usp       = fields.usp       || 'the core value proposition'
       const framework = fields.framework || 'PAS (Problem → Agitate → Solve)'
-      return `Act as a direct-response copywriter with a proven track record of writing campaigns that generated $1M+ in revenue. You have the strategic mind of David Ogilvy and the conversion instincts of Gary Halbert.
+      return `# ROLE
+Act as a direct-response copywriter with campaigns generating $1M+ in revenue. You combine David Ogilvy's strategic instincts with Gary Halbert's conversion mechanics.
 
-ASSIGNMENT: Write a high-converting ${type}
+# CONTEXT
+— Copy format: ${type}
+— Product / Service: ${product}
+— Ideal Customer: ${icp}
+— Unique Selling Point: ${usp}
+— Framework: ${framework}
 
-PRODUCT / SERVICE:
-${product}
+# OBJECTIVE
+Write a high-converting ${type} that makes ${icp} feel seen, understood, and compelled to act.
 
-IDEAL CUSTOMER PROFILE:
-${icp}
-— What keeps them up at night (the real problem beneath the surface problem)?
-— What have they already tried that failed?
-— What is their dream outcome in specific, vivid terms?
+# CONSTRAINTS
+— Open with the reader's deepest pain — not your product.
+— Use "you" language throughout. Never "our customers" or "users."
+— Include one specific, credible proof element (stat, case study, or testimonial detail).
+— CTA must be action-first: "Get," "Start," "Claim" — never "Learn more."
+— No "I'm excited to..." or corporate-speak.
 
-UNIQUE SELLING POINT:
-${usp}
+# REQUIRED DELIVERABLES
 
-COPYWRITING FRAMEWORK: ${framework}
+1. PRIMARY COPY
+Full-length, conversion-optimized using ${framework}
+Arc: [reader's pain] → [what's possible] → [why this] → [proof] → [CTA]
 
-EXECUTION REQUIREMENTS:
-1. PRIMARY COPY — Full-length, conversion-optimized version
-   — Open with the reader's deepest pain (not your product)
-   — Use "you" language throughout (never "our customers")
-   — Include one specific, credible proof element (stat, case study, name)
-   — CTA must be action-first: "Get," "Start," "Claim" — never "Learn more"
+2. SHORT VARIANT
+Under 50 words. Same emotional arc, ruthlessly compressed.
 
-2. SHORT VARIANT — Under 50 words. Same energy, ruthlessly compressed.
+3. HEADLINE / SUBJECT LINE OPTIONS (5 alternatives)
+— One curiosity-driven
+— One fear-based (authentic, not manipulative)
+— One desire-based
+— One ultra-specific (include a real number)
+— One contrarian / surprising
 
-3. SUBJECT LINE / HEADLINE OPTIONS — Write 5 alternatives:
-   — One curiosity-driven
-   — One fear-based
-   — One desire-based  
-   — One ultra-specific (include a number)
-   — One contrarian / surprising
+# OUTPUT FORMAT
+${structureGuide}
 
-TONE DIRECTIVE:
+# TONE
 ${toneGuide}
 
-QUALITY CHECK:
-Before finalizing, ask: does every sentence earn its place? Does the CTA feel inevitable? Would the ideal customer feel seen?`
+# QUALITY STANDARD
+${booster}
+
+${fewShot}`
     },
 
     coding: () => {
@@ -357,45 +469,200 @@ Before finalizing, ask: does every sentence earn its place? Does the CTA feel in
       const stack       = fields.language    || 'the specified tech stack'
       const level       = fields.level       || 'Senior engineer (no hand-holding)'
       const constraints = fields.constraints || 'production-ready standards'
-      const format      = fields.format      || 'Full working code + comments'
-      return `Act as a Staff Engineer at a top-tier tech company (think Stripe, Linear, or Vercel caliber). You write code that other senior engineers use as a reference.
+      const fmt         = fields.format      || 'Full working code + comments'
+      return `# ROLE
+Act as a Staff Engineer at a Stripe/Linear/Vercel-caliber company. You write code other senior engineers use as a reference.
 
-TASK:
-${task}
+# CONTEXT
+— Task: ${task}
+— Tech stack: ${stack}
+— Engineer level: ${level}
+— Constraints: ${constraints}
 
-TECH STACK:
-${stack}
+# OBJECTIVE
+Solve this coding challenge at production quality:
+"${task}"
 
-ENGINEER LEVEL TO CALIBRATE FOR:
-${level}
+# PRE-CODE ANALYSIS (required before any code)
+State:
+1. THE CORE CHALLENGE — What is technically interesting about this problem?
+2. YOUR APPROACH — And why (name 1 rejected alternative + reasoning)
+3. ASSUMPTIONS — About environment, scale, and usage patterns
 
-CONSTRAINTS & REQUIREMENTS:
-${constraints}
+# IMPLEMENTATION
+${fmt}
 
-YOUR APPROACH:
-Before writing a single line of code, briefly state:
-1. THE CORE CHALLENGE — What is the technically interesting part of this problem?
-2. YOUR CHOSEN APPROACH — And why (mention 1 alternative you rejected and why)
-3. ASSUMPTIONS — What you are assuming about the environment, scale, and usage pattern
-
-IMPLEMENTATION:
-${format}
-
-CODE QUALITY STANDARDS:
+# CODE QUALITY STANDARDS
 — Type-safe where applicable
-— Handle the happy path AND the 3 most likely failure modes
-— If using a pattern, name it (factory, observer, etc.) and briefly justify it
-— Optimize for readability first, performance second (unless performance is the explicit goal)
+— Handle happy path AND 3 most likely failure modes
+— Name design patterns used and justify them
+— Optimize for readability first, performance second (unless performance is the goal)
+— Comments explain WHY, not WHAT
 
-AFTER THE CODE:
-— One paragraph: what would you change if this needed to scale to 10x the current requirement?
-— Security consideration: one potential vulnerability and how to address it
-— Test strategy: what are the 3 most important test cases for this implementation?
+# POST-CODE ANALYSIS (required)
+— Scalability: what changes at 10x current requirement?
+— Security: one vulnerability and how to address it
+— Test strategy: 3 most important test cases
 
-TONE:
-${toneGuide}`
+# OUTPUT FORMAT
+${structureGuide}
+
+# TONE
+${toneGuide}
+
+# QUALITY STANDARD
+${booster}
+
+${fewShot}`
     },
   }
 
   return generators[category]()
 }
+
+// ─── ENHANCE PROMPT ──────────────────────────────────────────
+export function enhancePrompt(rawPrompt: string): string {
+  const booster = getBooster()
+  const structure = getStructure()
+  const structureGuide = structureInstruction(structure)
+
+  return `You are a world-class prompt engineer. Transform the basic prompt below into a professional, expert-level prompt using the ROLE + CONTEXT + OBJECTIVE + CONSTRAINTS + FORMAT framework.
+
+# BASIC PROMPT TO UPGRADE:
+"${rawPrompt}"
+
+# YOUR TASK:
+Analyze the intent and rewrite it as a complete expert-level prompt that produces dramatically better results from any AI model (ChatGPT, Claude, Gemini, etc.).
+
+# THE UPGRADED PROMPT MUST INCLUDE:
+
+## 1. ROLE
+Assign a specific, credentialed expert persona with relevant experience (not "an assistant").
+
+## 2. CONTEXT
+Add background information, industry context, and situational details the AI needs to avoid generic output.
+
+## 3. OBJECTIVE
+State the goal with extreme clarity. What exact output is needed? What does success look like?
+
+## 4. CONSTRAINTS (at least 4)
+Specific quality bars: what to include, what to avoid, what standard the output must meet.
+
+## 5. OUTPUT FORMAT
+Specify exact structure: ${structureGuide}
+
+## 6. QUALITY INSTRUCTION
+${booster}
+
+# AFTER THE UPGRADED PROMPT:
+Add a 2–3 sentence explanation of what you changed and why the upgraded version will produce significantly better results.`
+}
+
+// ─── PROMPT LIBRARY ──────────────────────────────────────────
+export interface LibraryPrompt {
+  id: string
+  title: string
+  category: string
+  categoryColor: string
+  tag: string
+  prompt: string
+}
+
+export const PROMPT_LIBRARY: LibraryPrompt[] = [
+  {
+    id: 'lib-1',
+    title: 'SaaS Churn Diagnosis',
+    category: 'Business',
+    categoryColor: '#D4902A',
+    tag: 'Retention',
+    prompt: `Act as a SaaS growth expert who has reduced churn at 20+ companies. My B2B SaaS has [X%] monthly churn among [customer segment].\n\nDiagnose the root cause beyond the obvious surface explanation. Present 3 intervention strategies ordered by speed of impact. For the fastest one, give me a 14-day execution plan with specific daily actions.\n\nConstraints: team of 3, $10k/month budget, no major engineering resources. Every recommendation must be executable by a small team.`,
+  },
+  {
+    id: 'lib-2',
+    title: 'Viral Instagram Hook',
+    category: 'Social Media',
+    categoryColor: '#EC4899',
+    tag: 'Instagram',
+    prompt: `Act as a social media strategist who has grown Instagram accounts from 0 to 500K+.\n\nCreate 3 Instagram caption variants for [your topic]. Each must:\n1. Open with a scroll-stopping hook (label the mechanism: curiosity gap / bold claim / pattern interrupt)\n2. Deliver one specific, actionable insight in the body\n3. End with a CTA that drives saves — not likes\n\nTone: direct and empowering. Include hashtag recommendations (2 broad, 4 niche, 3 micro-niche) and optimal posting time.`,
+  },
+  {
+    id: 'lib-3',
+    title: 'Staff Engineer Code Review',
+    category: 'Coding',
+    categoryColor: '#06B6D4',
+    tag: 'Architecture',
+    prompt: `Act as a Staff Engineer at a Stripe-caliber company. Review this code for production readiness:\n\n[paste your code here]\n\nProvide:\n1. Architecture assessment\n2. Top 3 issues ranked by severity (critical / major / minor)\n3. Security vulnerabilities (specific, not generic)\n4. Performance bottlenecks and fixes\n5. Refactored version of the most problematic section\n\nDon't soften feedback. If something fails in production, say so directly.`,
+  },
+  {
+    id: 'lib-4',
+    title: 'Cold Email That Gets Replies',
+    category: 'Copywriting',
+    categoryColor: '#F59E0B',
+    tag: 'Sales',
+    prompt: `Act as a B2B sales expert with a 35%+ reply rate on cold outreach.\n\nWrite a 3-email cold sequence targeting [job title] at [company type]. I solve [specific pain point].\n\nEmail 1: Pattern interrupt hook, no pitch, under 80 words\nEmail 2: One insight or mini case study, soft ask, under 100 words\nEmail 3: Graceful breakup with final value offer, under 60 words\n\nSubject lines: 4 words or fewer. No "I hope this finds you well." Open with their world, not yours.`,
+  },
+  {
+    id: 'lib-5',
+    title: 'Cinematic Portrait',
+    category: 'Midjourney',
+    categoryColor: '#8B5CF6',
+    tag: 'Portrait',
+    prompt: `[Your subject], cinematic photography, Leica M11 35mm, golden hour backlight, warm amber and shadow, shallow depth of field, film grain, genuine candid expression, atmospheric haze, Magnum Photos documentary style, muted earth tones —cream, terracotta, charcoal— --ar 4:5 --v 6.1 --style raw --q 2\n\n--no plastic skin, heavy retouching, oversaturated, studio background`,
+  },
+  {
+    id: 'lib-6',
+    title: 'PMF Analysis',
+    category: 'Business',
+    categoryColor: '#D4902A',
+    tag: 'Product-Market Fit',
+    prompt: `Act as a product strategist who has helped 15+ startups find product-market fit. My product: [describe]. I have [X] users and [retention metric].\n\nAssess my PMF signal honestly:\n1. What does my data actually tell us vs. what I'm hoping it means?\n2. The 3 leading indicators I should track but probably aren't\n3. The one segment most likely to show strong PMF first\n4. A 30-day experiment to accelerate discovery — specific, low-cost\n5. The hard question I'm probably avoiding`,
+  },
+  {
+    id: 'lib-7',
+    title: 'LinkedIn Thought Leadership',
+    category: 'Social Media',
+    categoryColor: '#EC4899',
+    tag: 'LinkedIn',
+    prompt: `Act as a LinkedIn content strategist who has grown B2B founder profiles to 50K+ followers.\n\nWrite a LinkedIn post about [your insight or experience]:\n— Open with a single sentence that stops a scroller (no "I'm excited to share...")\n— Structure: hook → story/data point → counterintuitive lesson → CTA\n— Length: 150–250 words maximum\n— End with a question inviting comments (not "what do you think?")\n— No hashtags in the post body`,
+  },
+  {
+    id: 'lib-8',
+    title: 'Landing Page Hero',
+    category: 'Copywriting',
+    categoryColor: '#F59E0B',
+    tag: 'Conversion',
+    prompt: `Act as a conversion copywriter who has written landing pages with 30%+ conversion rates.\n\nWrite the hero section for [product/service]:\nH1 (8 words max): State the outcome, not the feature. Be specific.\nSubhead (20 words max): Address #1 objection or add proof.\nBullets (3 max): Specific, credible benefits — not features.\nCTA (3 words max): Action-first, outcome-hinting.\nTrust signal: One line below CTA (social proof / guarantee)\n\nWrite for a skeptical prospect who has tried 3 similar products.`,
+  },
+  {
+    id: 'lib-9',
+    title: 'System Design Deep-Dive',
+    category: 'Coding',
+    categoryColor: '#06B6D4',
+    tag: 'System Design',
+    prompt: `Act as a systems architect who has designed infrastructure at scale. Design the architecture for [your system, e.g. a real-time notification system for 1M users].\n\nDeliver:\n1. High-level architecture (ASCII diagram)\n2. Technology choices with justification (one alternative rejected + why)\n3. The 3 most critical design decisions and trade-offs\n4. What breaks first at 10x scale and how to address it\n5. One thing most engineers get wrong when building this\n\nAssume senior engineering audience — skip basics, go deep.`,
+  },
+  {
+    id: 'lib-10',
+    title: 'Contrarian Analysis',
+    category: 'ChatGPT',
+    categoryColor: '#10B981',
+    tag: 'Analysis',
+    prompt: `Act as a contrarian analyst who challenges consensus narratives with evidence.\n\nTopic: [your topic — e.g. remote work, a specific industry trend]\n\nDeliver a structured contrarian analysis:\n1. The consensus view: what does conventional wisdom say?\n2. The data that challenges it: 3 specific counterpoints\n3. Who benefits from maintaining the consensus narrative?\n4. The nuanced truth neither camp acknowledges\n5. What someone who understands this correctly would do differently\n\nTone: intellectually rigorous, not cynical.`,
+  },
+  {
+    id: 'lib-11',
+    title: 'Product Photography',
+    category: 'Midjourney',
+    categoryColor: '#8B5CF6',
+    tag: 'Product',
+    prompt: `[Your product] product photography, pure white seamless background, soft diffused studio lighting, commercial photography quality, sharp focus, subtle shadow beneath product, professional retouching, advertising-ready, clean minimal composition, Phase One medium format camera --ar 1:1 --v 6.1 --q 2\n\n--no harsh shadows, cluttered background, amateur lighting, motion blur`,
+  },
+  {
+    id: 'lib-12',
+    title: 'Investor Pitch Email',
+    category: 'Business',
+    categoryColor: '#D4902A',
+    tag: 'Fundraising',
+    prompt: `Act as a founder who has closed $5M+ in seed funding. Write a cold investor email for my [type of business]:\n— Traction: [key metric]\n— Market: [size/opportunity]\n— Ask: [amount and primary use]\n\nRequirements: under 175 words. Confident and specific — not salesy. Sound like someone worth a 20-minute call. One clear low-friction ask at the end. No buzzwords. No deck mentioned until they express interest.`,
+  },
+]
