@@ -192,7 +192,7 @@ export default function HomePage() {
 
           <h2>Turn Simple Ideas Into Powerful AI Prompts</h2>
           <p>
-            Most people type something vague into ChatGPT and get something vague back. This is not a failure of the AI — it is a failure of communication. When you type "help me with my marketing," you are asking a system that knows everything to advise someone who gave it almost nothing. The AI fills in every blank with a statistical average and delivers an average response.
+            Most people type something vague into ChatGPT and get something vague back. This is not a failure of the AI — it is a failure of communication. When you type &quot;help me with my marketing,&quot; you are asking a system that knows everything to advise someone who gave it almost nothing. The AI fills in every blank with a statistical average and delivers an average response.
           </p>
           <p>
             PromptForge is built on one insight: if you tell the AI exactly who it is, exactly what you need, exactly what quality bar to meet, and exactly how to format the output — you get dramatically better results. Every time. With any model. The difference between &quot;help me with my marketing&quot; and a 400-word expert-structured prompt is not complexity. It is specificity. PromptForge handles the specificity for you.

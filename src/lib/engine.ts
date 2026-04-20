@@ -223,6 +223,7 @@ interface BuildInput {
 }
 
 export function buildPrompt(input: BuildInput): string {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { category, tone, outputType, fields } = input
   const toneGuide = toneInstruction(tone)
   const booster = getBooster()
