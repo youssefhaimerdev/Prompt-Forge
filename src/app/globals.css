@@ -1,0 +1,137 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,400&family=DM+Mono:wght@300;400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-syne: 'Syne', sans-serif;
+  --font-dm-sans: 'DM Sans', sans-serif;
+  --font-dm-mono: 'DM Mono', monospace;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-dm-sans);
+  background-color: #0C0D0F;
+  color: #B4B8CC;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Grid background */
+.bg-grid {
+  background-image: linear-gradient(rgba(42,45,56,0.35) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(42,45,56,0.35) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* Noise texture */
+.noise::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.25;
+}
+
+/* Amber shimmer button */
+.btn-amber {
+  background: linear-gradient(105deg, #9A6A1A 0%, #D4902A 30%, #F0B84A 50%, #D4902A 70%, #9A6A1A 100%);
+  background-size: 200% auto;
+  animation: shimmer 2.5s linear infinite;
+  color: #0C0D0F;
+  font-weight: 600;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.btn-amber:hover { transform: translateY(-1px); box-shadow: 0 8px 30px rgba(212,144,42,0.3); }
+.btn-amber:active { transform: translateY(0); }
+.btn-amber:disabled { opacity: 0.5; cursor: not-allowed; animation: none; background: #2A2D38; color: #5A5D70; transform: none; box-shadow: none; }
+
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #13151A; }
+::-webkit-scrollbar-thumb { background: #3D4150; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #D4902A; }
+
+/* Focus */
+*:focus-visible { outline: 2px solid #D4902A; outline-offset: 2px; }
+
+/* Ad placeholder */
+.ad-slot {
+  background: linear-gradient(135deg, #13151A 0%, #1C1F27 100%);
+  border: 1px dashed #2A2D38;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #5A5D70;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-family: var(--font-dm-mono);
+}
+
+/* Prose for SEO content */
+.prose-forge h2 {
+  font-family: var(--font-syne);
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #F2EDE4;
+  margin-top: 2.5rem;
+  margin-bottom: 0.9rem;
+  letter-spacing: -0.01em;
+}
+.prose-forge p {
+  color: #8B8FA8;
+  line-height: 1.85;
+  margin-bottom: 1.2rem;
+  font-size: 0.9375rem;
+}
+.prose-forge ul { list-style: none; padding: 0; margin-bottom: 1.2rem; }
+.prose-forge ul li {
+  padding-left: 1.5rem;
+  position: relative;
+  color: #8B8FA8;
+  line-height: 1.75;
+  margin-bottom: 0.5rem;
+  font-size: 0.9375rem;
+}
+.prose-forge ul li::before {
+  content: '→';
+  position: absolute;
+  left: 0;
+  color: #D4902A;
+  font-size: 0.85rem;
+}
+.prose-forge strong { color: #B4B8CC; font-weight: 600; }
+
+/* Glow effect */
+.amber-glow { box-shadow: 0 0 40px rgba(212,144,42,0.12), 0 0 80px rgba(212,144,42,0.04); }
+
+/* Category pill active */
+.cat-pill-active {
+  background: rgba(212,144,42,0.12);
+  border-color: #D4902A;
+  color: #F0B84A;
+}
+
+/* Prompt output text */
+.prompt-output {
+  font-family: var(--font-dm-mono);
+  font-size: 0.8125rem;
+  line-height: 1.9;
+  color: #B4B8CC;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
